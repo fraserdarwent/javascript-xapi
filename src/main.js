@@ -1,6 +1,15 @@
 'use strict';
 
 import WebSocket from 'ws';
+import lib from './lib.js';
+
+const throttle = lib.throttle(50);
+
+let lastRequestTime = new Date().getTime();
+
+function delay(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
 
 function getSymbols(ws) {
   return new Promise((resolve, reject) => {
@@ -24,8 +33,7 @@ function getSymbols(ws) {
     });
   });
 }
-
-function getTicks(ws, symbol) {
+function ticksPromise(ws, symbol, callback) {
   return new Promise((resolve, reject) => {
     ws.send(
       JSON.stringify({
@@ -46,7 +54,83 @@ function getTicks(ws, symbol) {
       const response = JSON.parse(message);
       if (response.customTag === 'ticks') {
         if (response.status === true) {
+          if (callback) {
+            callback();
+          }
           resolve(response.returnData.rateInfos);
+        } else {
+          reject(message);
+        }
+      }
+    });
+  });
+}
+
+function ticksFlow(params) {
+  return delay(Math.random() * 1000).then(_ =>
+    login(params.configuration).then(ws =>
+      delay(200).then(_ =>
+        ticksPromise(ws, params.symbol, params.callback).then(ticks =>
+          delay(200).then(_ => logout(ws).then(_ => ticks))
+        )
+      )
+    )
+  );
+}
+
+function logout(ws) {
+  return new Promise((resolve, reject) => {
+    ws.send(
+      JSON.stringify({
+        command: 'logout',
+        customTag: 'logout',
+      })
+    );
+
+    ws.on('close', _ => {
+      resolve();
+    });
+
+    ws.on('message', message => {
+      const response = JSON.parse(message);
+      if (response.customTag === 'logout') {
+        if (response.status === true) {
+          ws.close();
+        } else {
+          reject(error);
+        }
+      }
+    });
+  });
+}
+
+function login(configuration) {
+  return new Promise((resolve, reject) => {
+    const ws = new WebSocket('wss://ws.xtb.com/demo');
+
+    ws.on('error', error => {
+      console.error(error);
+      process.exit(1);
+    });
+
+    ws.on('open', () => {
+      ws.send(
+        JSON.stringify({
+          command: 'login',
+          arguments: {
+            userId: configuration.userId,
+            password: configuration.password,
+          },
+          customTag: 'login',
+        })
+      );
+    });
+
+    ws.on('message', message => {
+      const response = JSON.parse(message);
+      if (response.customTag === 'login') {
+        if (response.status === true) {
+          resolve(ws);
         } else {
           reject(message);
         }
@@ -62,18 +146,25 @@ export default class XAPI {
     this.configuration = configuration;
   }
 
-  ticks(symbol) {
-    return login(this.configuration.userId, this.configuration.password).then(ws =>
-      getTicks(ws, symbol).then(ticks =>
-        logout(ws).then(_ => {
-          return ticks;
+  ticks(symbols, callback) {
+    if (typeof symbols === 'string') {
+      symbols = [symbols];
+    }
+    return Promise.all(
+      symbols.map(symbol =>
+        throttle(ticksFlow)({
+          configuration: this.configuration,
+          symbol: symbol,
+          callback: callback,
+        }).then(ticks => {
+          return {symbol: symbol, ticks: ticks};
         })
       )
     );
   }
 
   symbols() {
-    return login(this.configuration.userId, this.configuration.password).then(ws =>
+    return login(this.configuration).then(ws =>
       getSymbols(ws).then(ticks =>
         logout(ws).then(_ => {
           return ticks;
@@ -81,48 +172,4 @@ export default class XAPI {
       )
     );
   }
-}
-
-function login(userId, password) {
-  const ws = new WebSocket('wss://ws.xtb.com/demo');
-
-  return new Promise((resolve, reject) => {
-    ws.on('open', () => {
-      ws.send(
-        JSON.stringify({
-          command: 'login',
-          arguments: {
-            userId: userId,
-            password: password,
-          },
-          customTag: 'login',
-        })
-      );
-    });
-
-    ws.on('message', message => {
-      const response = JSON.parse(message);
-      if (response.customTag === 'login' && response.status === true) {
-        resolve(ws);
-      }
-    });
-  });
-}
-
-function logout(ws) {
-  return new Promise((resolve, reject) => {
-    ws.send(
-      JSON.stringify({
-        command: 'logout',
-        customTag: 'logout',
-      })
-    );
-
-    ws.on('message', message => {
-      const response = JSON.parse(message);
-      if (response.customTag === 'logout' && response.status === true) {
-        resolve(ws);
-      }
-    });
-  });
 }

@@ -1,19 +1,24 @@
 {
   "name": "@fraserdarwent/javascript-xapi",
   "version": "1.0.0",
-  "main": "src/main.js",
   "license": "MIT",
+  "main": "dist/main.js",
   "private": false,
   "scripts": {
-    "format": "prettier -w src/"
+    "format": "prettier -w src/",
+    "build": "rollup -c",
+    "develop": "rollup -c -w"
   },
-  "dependencies": {
+  "files": [
+    "dist/main.js"
+  ],
+  "dependencies": {},
+  "devDependencies": {
+    "prettier": "^2.1.1",
+    "prettier-airbnb-config": "^1.0.0",
+    "rollup": "^2.26.9",
     "bufferutil": "^4.0.1",
     "utf-8-validate": "^5.0.2",
     "ws": "^7.3.1"
-  },
-  "devDependencies": {
-    "prettier": "^2.1.1",
-    "prettier-airbnb-config": "^1.0.0"
   }
 }
